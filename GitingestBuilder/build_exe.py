@@ -24,19 +24,24 @@ def build_exe():
     """Build the executable using PyInstaller."""
     print("\nBuilding executable...")
     
-    # PyInstaller command
+    # PyInstaller command with tiktoken data collection
     cmd = [
         "pyinstaller",
         "--onefile",  # Single executable file
         "--windowed",  # No console window
         "--name=GitingestDigester",  # Name of the executable
         "--icon=NONE",  # You can add an icon file here if you have one
-        "--add-data", "README.txt;.",  # Add any additional files
         "--hidden-import=gitingest",
         "--hidden-import=tiktoken",
+        "--hidden-import=tiktoken_ext",
+        "--hidden-import=tiktoken_ext.openai_public",
         "--hidden-import=pathspec",
+        "--hidden-import=loguru",
+        "--collect-data=tiktoken_ext",
         "--collect-all=gitingest",
         "--collect-all=tiktoken",
+        "--exclude-module=pytest",
+        "--exclude-module=unittest",
         "gitingest_gui.py"
     ]
     

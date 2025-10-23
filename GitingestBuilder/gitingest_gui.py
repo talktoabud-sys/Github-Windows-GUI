@@ -1,20 +1,61 @@
 #!/usr/bin/env python3
 """
 Windows GUI application to digest folders using Gitingest.
-Provides a simple interface for selecting folders and generating digests.
+Forces UTF-8 encoding globally to avoid cp1252 errors.
 """
 
+import sys
+import os
+
+# CRITICAL: Set UTF-8 mode BEFORE any other imports
+# This must be the very first thing
+os.environ['PYTHONUTF8'] = '1'
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+# Set locale to UTF-8
+import locale
+try:
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+except:
+    try:
+        locale.setlocale(locale.LC_ALL, 'C.UTF-8')
+    except:
+        pass
+
+from io import StringIO
+
+# Redirect stdout and stderr to prevent logging errors in windowed mode
+sys.stdout = StringIO()
+sys.stderr = StringIO()
+
+os.environ['LOG_LEVEL'] = 'CRITICAL'
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+
+# Monkey-patch locale.getpreferredencoding to always return UTF-8
+original_getpreferredencoding = locale.getpreferredencoding
+def patched_getpreferredencoding(do_setlocale=True):
+    return 'utf-8'
+locale.getpreferredencoding = patched_getpreferredencoding
+
+# Now import everything else
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 import threading
 from pathlib import Path
-import sys
 
 
 def run_ingest(folder_path, output_file, status_text, progress_bar, window):
-    """Run the ingestion in a separate thread to keep GUI responsive."""
+    """Run the ingestion with UTF-8 enforcement."""
     try:
-        # Import here to avoid issues during GUI setup
+        # Patch gitingest's encoding detection before importing
+        import gitingest.utils.file_utils as file_utils
+        
+        # Override _get_preferred_encodings to return UTF-8 first
+        original_get_encodings = file_utils._get_preferred_encodings
+        def utf8_first_encodings():
+            return ['utf-8', 'utf-8-sig', 'latin-1']
+        file_utils._get_preferred_encodings = utf8_first_encodings
+        
         from gitingest import ingest
         
         status_text.insert(tk.END, f"Processing: {folder_path}\n")
@@ -24,8 +65,8 @@ def run_ingest(folder_path, output_file, status_text, progress_bar, window):
         
         # Run ingestion
         summary, tree, content = ingest(
-            source=folder_path,
-            output=output_file
+            source=str(folder_path),
+            output=str(output_file)
         )
         
         # Update status
@@ -45,9 +86,10 @@ def run_ingest(folder_path, output_file, status_text, progress_bar, window):
         
     except Exception as e:
         progress_bar.stop()
-        status_text.insert(tk.END, f"\n❌ Error: {str(e)}\n")
+        error_msg = str(e)
+        status_text.insert(tk.END, f"\n❌ Error: {error_msg}\n")
         status_text.see(tk.END)
-        messagebox.showerror("Error", f"Failed to create digest:\n\n{str(e)}")
+        messagebox.showerror("Error", f"Failed to create digest:\n\n{error_msg}")
 
 
 class DigestApp:
@@ -166,7 +208,6 @@ class DigestApp:
         folder = filedialog.askdirectory(title="Select Folder to Digest")
         if folder:
             self.folder_path.set(folder)
-            # Auto-set output path based on folder name
             folder_name = Path(folder).name
             default_output = str(Path(folder).parent / f"{folder_name}_digest.txt")
             self.output_path.set(default_output)
@@ -196,18 +237,12 @@ class DigestApp:
             messagebox.showwarning("No Output", "Please specify an output file.")
             return
         
-        # Clear status
         self.status_text.delete(1.0, tk.END)
-        
-        # Start progress bar
         self.progress['mode'] = 'indeterminate'
         self.progress['value'] = 0
         self.progress.start(10)
-        
-        # Disable button during processing
         self.process_btn.config(state=tk.DISABLED)
         
-        # Run in separate thread
         thread = threading.Thread(
             target=lambda: self._process_wrapper(folder, output)
         )
